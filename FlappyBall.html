@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flappy Neon Ball — Ultimate</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { 
+    margin:0; 
+    overflow:hidden; 
+    background: radial-gradient(circle at top, #0b0b1a, #02020a); 
+  }
+  canvas { 
+    display:block; 
+    margin:0 auto; 
+    background: linear-gradient(to top, #020202, #10101f); 
+  }
+
+  .hud{
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 10;
+    color: white;
+  }
+  .hud button{
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-weight: 600;
+    background: rgba(0,255,255,0.15);
+    border: 1px solid cyan;
+    backdrop-filter: blur(6px);
+  }
+</style>
+</head>
+<body>
+
+<!-- HUD -->
+<div class="hud">
+  <div class="text-xl font-bold tracking-wide text-cyan-300 drop-shadow">
+    Flappy Neon Ball ⚾
+  </div>
+  <button id="startBtn">Start</button>
+  <button id="pauseBtn">Pause</button>
+  <button id="resetBtn">Reset</button>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+let bird = {x:100, y:canvas.height/2, radius:20, vy:0};
+let gravity = 0.6, lift = -10;
+let pipes = [], pipeGap = 180;
+let score = 0;
+let gameOver = false;
+let running = false;
+
+let trail = [];
+let particles = [];
+let bgOffset = 0;
+
+function createPipe(){
+  const topHeight = Math.random() * (canvas.height - pipeGap - 100) + 50;
+  pipes.push({x:canvas.width, top:topHeight, bottom:canvas.height-topHeight-pipeGap, width:60, scored:false});
+}
+
+function draw(){
+  bgOffset = (bgOffset + 0.5) % canvas.height;
+  let gradient = ctx.createLinearGradient(0,bgOffset,0,bgOffset+canvas.height);
+  gradient.addColorStop(0,'#0b0b1a');
+  gradient.addColorStop(1,'#02020a');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  trail.forEach(t=>{
+    ctx.beginPath();
+    ctx.arc(t.x,t.y,t.radius,0,Math.PI*2);
+    ctx.fillStyle=`rgba(0,255,255,${t.alpha})`;
+    ctx.fill();
+  });
+
+  ctx.beginPath();
+  ctx.arc(bird.x, bird.y, bird.radius,0,Math.PI*2);
+  ctx.fillStyle='cyan';
+  ctx.shadowColor='cyan';
+  ctx.shadowBlur=20;
+  ctx.fill();
+
+  pipes.forEach(p=>{
+    ctx.fillStyle='lime';
+    ctx.shadowColor='lime';
+    ctx.shadowBlur=15;
+    ctx.fillRect(p.x,0,p.width,p.top);
+    ctx.fillRect(p.x,canvas.height-p.bottom,p.width,p.bottom);
+  });
+
+  particles.forEach(p=>{
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fillStyle=p.color;
+    ctx.fill();
+  });
+
+  ctx.fillStyle='white';
+  ctx.font='32px sans-serif';
+  ctx.fillText('Score: '+score,20,40);
+}
+
+function update(){
+  if(gameOver || !running) return;
+
+  bird.vy += gravity;
+  bird.y += bird.vy;
+
+  trail.push({x:bird.x, y:bird.y, radius:bird.radius/2, alpha:0.5});
+  trail = trail.map(t=>({...t, alpha:t.alpha-0.03})).filter(t=>t.alpha>0);
+
+  if(pipes.length===0 || pipes[pipes.length-1].x < canvas.width - 300){
+    createPipe();
+  }
+
+  pipes.forEach(p=>{
+    p.x -= 3;
+    if(bird.x + bird.radius > p.x && bird.x - bird.radius < p.x + p.width){
+      if(bird.y - bird.radius < p.top || bird.y + bird.radius > canvas.height - p.bottom){
+        endGame();
+      }
+    }
+    if(!p.scored && p.x + p.width < bird.x){
+      score++;
+      p.scored=true;
+      for(let i=0;i<10;i++){
+        particles.push({x:bird.x, y:bird.y, vx:(Math.random()-0.5)*4, vy:(Math.random()-0.5)*4, r:3, color:'cyan', life:20});
+      }
+    }
+  });
+
+  particles.forEach(p=>{
+    p.x += p.vx; p.y += p.vy; p.life--;
+  });
+  particles = particles.filter(p=>p.life>0);
+  pipes = pipes.filter(p=>p.x + p.width>0);
+
+  if(bird.y+bird.radius>canvas.height || bird.y-bird.radius<0) endGame();
+}
+
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function endGame(){
+  gameOver=true;
+  running=false;
+  setTimeout(()=>alert('💥 Game Over! Score: '+score),50);
+}
+
+/* Controls */
+startBtn.onclick = ()=>{ if(!gameOver) running=true; };
+pauseBtn.onclick = ()=>{ running = !running; };
+resetBtn.onclick = ()=>{
+  bird.y = canvas.height/2;
+  bird.vy = 0;
+  pipes = [];
+  score = 0;
+  gameOver = false;
+  running = false;
+  trail = [];
+  particles = [];
+};
+
+window.addEventListener('keydown', e=>{
+  if((e.key===' ' || e.key==='ArrowUp') && running) bird.vy=lift;
+});
+window.addEventListener('mousedown', ()=>{ if(running) bird.vy=lift; });
+window.addEventListener('touchstart', ()=>{ if(running) bird.vy=lift; });
+
+loop();
+</script>
+</body>
+</html>

@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ball Ninja — Neon Ninja</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background: radial-gradient(circle at 20% 20%, #05050a, #0a0a1a);
+      overflow: hidden;
+      touch-action: none;
+    }
+    canvas { display: block; margin: 0 auto; }
+
+    .controls{
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      gap: 8px;
+      z-index: 10;
+    }
+    .controls button{
+      padding: 6px 14px;
+      border-radius: 8px;
+      background: cyan;
+      color: #000;
+      font-weight: bold;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="flex items-center justify-between mb-4">
+      <h1 class="text-3xl pl-6 pt-6 text-cyan-400 drop-shadow-[0_0_10px_cyan] font-extrabold">Ball Ninja ⚽</h1>
+      <div class="hud">
+        <div class="text-sm">
+          <div class="opacity-80">Score</div>
+          <div id="score" class="text-2xl font-bold">0</div>
+        </div>
+        <div class="controls">
+          <button id="startBtn">Start</button>
+          <button id="pauseBtn">Pause</button>
+          <button id="resetBtn">Reset</button>
+        </div>
+      </div>
+    </header>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+class Fruit {
+  constructor(x, y, vx, vy, color){
+    this.x = x; this.y = y;
+    this.vx = vx; this.vy = vy;
+    this.color = color;
+    this.radius = 28 + Math.random()*12;
+    this.sliced = false;
+  }
+  update(){
+    this.vy += 0.15;
+    this.x += this.vx;
+    this.y += this.vy;
+    if(this.y > canvas.height + 50) this.sliced = true;
+  }
+  draw(ctx){
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
+    ctx.fillStyle = this.color;
+    ctx.fill();
+  }
+}
+
+let fruits = [];
+let particles = [];
+let score = 0;
+let lastSpawn = 0;
+let gameRunning = false;
+
+function spawnFruit(){
+  const x = Math.random()*canvas.width*0.8 + canvas.width*0.1;
+  const y = canvas.height + 50;
+  const vx = (Math.random()-0.5)*4;
+  const vy = -7 - Math.random()*4;
+  const colors = ['red','orange','yellow','green','magenta','cyan'];
+  const color = colors[Math.floor(Math.random()*colors.length)];
+  fruits.push(new Fruit(x,y,vx,vy,color));
+}
+
+function animate(time){
+  if(!gameRunning) return;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  if(time - lastSpawn > 800){
+    spawnFruit();
+    lastSpawn = time;
+  }
+
+  fruits.forEach(f => {
+    f.update();
+    f.draw(ctx);
+  });
+  fruits = fruits.filter(f=>!f.sliced);
+
+  drawParticles();
+
+  ctx.fillStyle = 'cyan';
+  ctx.font = '28px sans-serif';
+  ctx.fillText('Score: '+score, 20,40);
+
+  requestAnimationFrame(animate);
+}
+
+// slicing
+let mouseDown = false;
+canvas.addEventListener('mousedown',()=>mouseDown=true);
+canvas.addEventListener('mouseup',()=>mouseDown=false);
+canvas.addEventListener('mousemove', slice);
+canvas.addEventListener('touchmove', (e)=>{
+  e.preventDefault();
+  for(let t of e.touches) slice(t);
+});
+
+function slice(e){
+  if(e.touches) e=e.touches[0];
+  if(!mouseDown && !e.touches) return;
+
+  const mx = e.clientX, my = e.clientY;
+  fruits.forEach(f=>{
+    const dx = f.x - mx, dy = f.y - my;
+    if(!f.sliced && Math.sqrt(dx*dx+dy*dy)<f.radius){
+      f.sliced = true;
+      score += 10;
+      for(let i=0;i<6;i++){
+        particles.push({
+          x:f.x, y:f.y,
+          vx:(Math.random()-0.5)*3,
+          vy:(Math.random()-0.5)*3,
+          r:3,
+          color:f.color,
+          life:20
+        });
+      }
+    }
+  });
+}
+
+function drawParticles(){
+  particles.forEach(p=>{
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life--;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+  });
+  particles = particles.filter(p=>p.life>0);
+}
+
+// buttons
+startBtn.onclick = ()=>{
+  if(!gameRunning){
+    gameRunning = true;
+    requestAnimationFrame(animate);
+  }
+};
+
+pauseBtn.onclick = ()=>{
+  gameRunning = false;
+};
+
+resetBtn.onclick = ()=>{
+  gameRunning = false;
+  fruits = [];
+  particles = [];
+  score = 0;
+  lastSpawn = 0;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+};
+</script>
+</body>
+</html>

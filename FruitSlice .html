@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Fruit Slice — Smooth Tailwind Game</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root{ 
+      --bg1:#071026; 
+      --bg2:#0f2b3b; 
+    }
+    body{ 
+      background: radial-gradient(circle at 10% 10%, var(--bg2) 0%, var(--bg1) 60%); 
+      -webkit-font-smoothing:antialiased; 
+      -moz-osx-font-smoothing:grayscale; 
+    }
+    #game{ 
+      width:100%; 
+      height:70vh; 
+      max-height:760px; 
+      border-radius:16px; 
+      background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.06)); 
+      position:relative; 
+      overflow:hidden; 
+      box-shadow:0 10px 30px rgba(2,6,23,0.6); 
+    }
+    .fruit { 
+      position:absolute; 
+      user-select:none; 
+      pointer-events:none; 
+      transform-origin:center; 
+      will-change: transform, left, top; 
+    }
+    .fruit img{ 
+      display:block; 
+      width:100%; 
+      height:100%; 
+      border-radius:18%; 
+      box-shadow: 0 6px 18px rgba(2,6,23,0.45); 
+    }
+    .slice { 
+      position:absolute; 
+      pointer-events:none; 
+      border-radius:999px; 
+      mix-blend-mode:screen; 
+      filter:blur(6px); 
+      opacity:0.9; 
+    }
+    .hud { 
+      display:flex; 
+      gap:12px; 
+      align-items:center; 
+    }
+    .btn { 
+      background: linear-gradient(180deg,#0ea5a7,#0891b2); 
+      padding:6px 10px; 
+      border-radius:10px; 
+      color:white; 
+      font-weight:600; 
+      box-shadow:0 6px 20px rgba(2,6,23,0.5); 
+    }
+    .pop-score { 
+      position:absolute; 
+      font-weight:800; 
+      color:#ffd166; 
+      text-shadow:0 2px 8px rgba(0,0,0,0.6); 
+      transform:translateY(-20px); 
+      pointer-events:none; 
+    }
+    /* trail */
+    canvas { 
+      position:absolute; 
+      left:0; 
+      top:0; 
+      width:100%; 
+      height:100%; 
+      pointer-events:none; 
+    }
+    /* mobile tweaks */
+    @media (max-width:640px){ 
+      .btn{ 
+        padding:8px 12px; 
+      } 
+    }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center py-8 text-white">
+  <div class="w-full max-w-4xl px-4">
+    <header class="flex items-center justify-between mb-4">
+      <h1 class="text-2xl font-extrabold">Fruit Slice 🍉</h1>
+      <div class="hud">
+        <div class="text-sm">
+          <div class="opacity-80">Score</div>
+          <div id="score" class="text-2xl font-bold">0</div>
+        </div>
+        <button id="startBtn" class="btn ml-4">Start</button>
+        <button id="resetBtn" class="btn ml-2 bg-orange-500">Reset</button>
+      </div>
+    </header>
+
+    <main id="game" class="relative">
+      <canvas id="trail"></canvas>
+      <div id="popLayer" class=""></div>
+    </main>
+
+    <footer class="mt-4 text-sm text-gray-300">
+      Drag mouse/finger to slice fruits. Fruits toss with physics; combos give bonus.
+    </footer>
+  </div>
+
+  <script>
+  // CONFIG 
+  const CONFIG = {
+    gravity: 0.28,
+    spawnInterval: 800,  
+    maxFruits: 6,
+    fruitMinSize: 56,
+    fruitMaxSize: 110,
+    comboTimeout: 900,     
+    spawnBurstChance: 0.22 
+  };
+
+  // DOM 
+  const game = document.getElementById('game');
+  const trailCanvas = document.getElementById('trail');
+  const ctx = trailCanvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const startBtn = document.getElementById('startBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const popLayer = document.getElementById('popLayer');
+
+  // STATE 
+  let width, height;
+  let running = false;
+  let fruits = []; 
+  let lastSpawn = 0;
+  let spawnTimer = null;
+  let score = 0;
+  let combo = 0;
+  let lastSliceAt = 0;
+  let trail = []; 
+  let rafId = null;
+
+  // simple fruit images 
+  const FRUITS = [
+    {name:'watermelon', emoji:'🍉'},
+    {name:'strawberry', emoji:'🍓'},
+    {name:'pineapple', emoji:'🍍'},
+    {name:'peach', emoji:'🍑'},
+    {name:'apple', emoji:'🍎'},
+    {name:'grape', emoji:'🍇'}
+  ];
+
+  // UTIL
+  function rand(min,max){ return Math.random()*(max-min)+min; }
+  function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+  function now(){ return performance.now(); }
+
+  // RESIZE 
+  function resize() {
+    width = game.clientWidth;
+    height = game.clientHeight;
+    trailCanvas.width = width;
+    trailCanvas.height = height;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // FRUIT CREATION 
+  let fruitId = 0;
+  function spawnFruit(burst=false) {
+    if (!running) return;
+    if (fruits.length >= CONFIG.maxFruits) return;
+
+    const id = ++fruitId;
+    const size = Math.round(rand(CONFIG.fruitMinSize, CONFIG.fruitMaxSize));
+    const el = document.createElement('div');
+    el.className = 'fruit';
+    el.style.width = size + 'px';
+    el.style.height = size + 'px';
+    el.style.left = '-200px'; el.style.top = '0px';
+    el.style.zIndex = 5;
+    // use emoji inside large text to keep it simple & standalone
+    el.innerHTML = `<div style="font-size:${Math.round(size*0.9)}px; line-height:1; text-align:center;">${FRUITS[Math.floor(Math.random()*FRUITS.length)].emoji}</div>`;
+    game.appendChild(el);
+
+    // spawn from bottom with random x and initial upward velocity 
+    const startX = rand(width*0.15, width*0.85);
+    const startY = height + 20;
+    const vx = rand(-2.4, 2.4) * (1 + Math.random()*0.4);
+    const vy = -rand(9.8, 12.6) - (Math.random()*3);
+    const fruit = { id, el, x: startX, y: startY, vx, vy, size, sliced:false, rot: rand(-0.6,0.6), rotV: rand(-0.02,0.02) };
+    fruits.push(fruit);
+    // position immediately
+    el.style.left = (fruit.x - fruit.size/2) + 'px';
+    el.style.top = (fruit.y - fruit.size/2) + 'px';
+    // small pop entrance
+    el.style.transform = 'scale(0.92)';
+    el.style.transition = 'transform 220ms cubic-bezier(.2,.9,.2,1)';
+    requestAnimationFrame(()=> el.style.transform = 'scale(1)');
+
+    // optional burst spawn (spawn a couple more quickly)
+    if (burst && Math.random() < 0.6) {
+      setTimeout(()=> spawnFruit(false), 80 + Math.random()*180);
+      if (Math.random() < 0.4) setTimeout(()=> spawnFruit(false), 160 + Math.random()*220);
+    }
+  }
+
+  // PHYSICS & RENDER 
+  function update(dt) {
+    // spawn by timer sometimes
+    if (now() - lastSpawn > CONFIG.spawnInterval) {
+      lastSpawn = now();
+      spawnFruit(Math.random() < CONFIG.spawnBurstChance);
+    }
+
+    // update each fruit
+    for (let i = fruits.length -1; i >=0; i--) {
+      const f = fruits[i];
+      if (f.sliced) continue; 
+      f.vy += CONFIG.gravity * dt * 0.06; 
+      f.x += f.vx * dt * 0.06;
+      f.y += f.vy * dt * 0.06;
+      f.rot += f.rotV * dt * 0.06;
+      // update DOM
+      f.el.style.left = (f.x - f.size/2) + 'px';
+      f.el.style.top  = (f.y - f.size/2) + 'px';
+      f.el.style.transform = `rotate(${f.rot}rad)`;
+
+      // if falls below screen — remove
+      if (f.y - f.size/2 > height + 80) {
+        // miss effect? simple fade
+        f.el.style.transition = 'opacity 300ms ease, transform 300ms ease';
+        f.el.style.opacity = '0';
+        f.el.style.transform = 'scale(.6) translateY(40px)';
+        fruits.splice(i,1);
+        setTimeout(()=> { try{ f.el.remove(); }catch{} }, 350);
+      }
+    }
+
+    // check slicing (trail vs fruit)
+    if (trail.length > 0) {
+      // build segments
+      for (let s = fruits.length-1; s>=0; s--) {
+        const f = fruits[s];
+        if (f.sliced) continue;
+        const fx = f.x, fy = f.y, r = f.size*0.45;
+        // check if any trail point is within radius
+        for (let t = 0; t < trail.length; t++) {
+          const p = trail[t];
+          const dx = p.x - fx;
+          const dy = p.y - fy;
+          if (dx*dx + dy*dy < r*r) {
+            // sliced!
+            sliceFruit(f, p);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // SLICE EFFECT
+  function sliceFruit(fruit, point) {
+    if (fruit.sliced) return;
+    fruit.sliced = true;
+    // score handling
+    const nowt = now();
+    if (nowt - lastSliceAt < CONFIG.comboTimeout) {
+      combo++;
+    } else {
+      combo = 1;
+    }
+    lastSliceAt = nowt;
+    const points = 10 + Math.round( (fruit.size/20) * combo );
+    score += points;
+    scoreEl.textContent = score;
+
+    // create halves visual: clone element, show two halves with rotation + fall
+    const rect = fruit.el.getBoundingClientRect();
+    const halfA = fruit.el.cloneNode(true);
+    const halfB = fruit.el.cloneNode(true);
+    halfA.style.position='absolute'; halfB.style.position='absolute';
+    halfA.style.overflow='hidden'; halfB.style.overflow='hidden';
+    halfA.style.width = fruit.size + 'px'; halfB.style.width = fruit.size + 'px';
+    halfA.style.height = fruit.size + 'px'; halfB.style.height = fruit.size + 'px';
+    halfA.style.left = (fruit.x - fruit.size/2) + 'px';
+    halfA.style.top  = (fruit.y - fruit.size/2) + 'px';
+    halfB.style.left = halfA.style.left; halfB.style.top = halfA.style.top;
+    halfA.style.clipPath = 'polygon(0 0, 55% 0, 55% 100%, 0% 100%)';
+    halfB.style.clipPath = 'polygon(45% 0, 100% 0, 100% 100%, 45% 100%)';
+    halfA.style.zIndex = 9; halfB.style.zIndex = 9;
+    game.appendChild(halfA); game.appendChild(halfB);
+
+    // apply initial impulse away from slice point
+    const ang = Math.atan2(fruit.y - point.y, fruit.x - point.x);
+    const speed = 5 + Math.random()*3 + combo*0.6;
+
+    // animate halves
+    const vxA = Math.cos(ang - 0.6) * speed * -1;
+    const vyA = Math.sin(ang - 0.6) * speed * -1;
+    const vxB = Math.cos(ang + 0.6) * speed;
+    const vyB = Math.sin(ang + 0.6) * speed;
+
+    halfA.style.transition = 'transform 1200ms cubic-bezier(.2,.7,.2,1), opacity 900ms ease';
+    halfB.style.transition = 'transform 1200ms cubic-bezier(.2,.7,.2,1), opacity 900ms ease';
+    requestAnimationFrame(()=>{
+      halfA.style.transform = `translate(${vxA*40}px, ${vyA*40 + 40}px) rotate(${(Math.random()-0.5)*80}deg)`;
+      halfB.style.transform = `translate(${vxB*40}px, ${vyB*40 + 40}px) rotate(${(Math.random()-0.5)*80}deg)`;
+      halfA.style.opacity = '0'; halfB.style.opacity = '0';
+    });
+
+    // small pop score
+    const pop = document.createElement('div');
+    pop.className = 'pop-score';
+    pop.style.left = (fruit.x - 10) + 'px';
+    pop.style.top  = (fruit.y - 10) + 'px';
+    pop.textContent = `+${points}`;
+    popLayer.appendChild(pop);
+    setTimeout(()=> { pop.remove(); }, 900);
+
+    // remove original fruit element
+    try{ fruit.el.remove(); }catch(e){}
+    // remove from array
+    fruits = fruits.filter(f => f.id !== fruit.id);
+    setTimeout(()=> { try{ halfA.remove(); halfB.remove(); }catch(e){} }, 1100);
+
+    // small sound beep using WebAudio
+    playBeep(900 + combo*40, 0.06);
+  }
+
+  // TRAIL (pointer path) 
+  function addTrailPoint(x,y) {
+    const t = { x, y, t: now() };
+    trail.push(t);
+    // keep short
+    while (trail.length > 25) trail.shift();
+  }
+  function pruneTrail() {
+    const cutoff = now() - 160;
+    trail = trail.filter(p => p.t > cutoff);
+  }
+  function drawTrail() {
+    ctx.clearRect(0,0,width,height);
+    if (trail.length < 2) return;
+    ctx.lineJoin = ctx.lineCap = 'round';
+    // variable width by speed
+    for (let i = 0; i < trail.length-1; i++) {
+      const a = trail[i], b = trail[i+1];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const widthLine = clamp(18 - dist*0.08, 4, 18);
+      const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+      grad.addColorStop(0, 'rgba(255,255,255,0.85)');
+      grad.addColorStop(1, 'rgba(255,200,80,0.7)');
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = widthLine;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+  }
+
+  // AUDIO 
+  let audioCtx = null;
+  function ensureAudio() {
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch(e) { audioCtx = null; }
+    }
+  }
+  function playBeep(freq=880, dur=0.05) {
+    ensureAudio();
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.12, audioCtx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + dur + 0.02);
+  }
+
+  document.addEventListener('touchstart', function firstTouch() {
+    ensureAudio();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    document.removeEventListener('touchstart', firstTouch);
+  });
+
+  // INPUT HANDLING 
+  let pointerDown = false;
+  function toLocal(e) {
+    const r = game.getBoundingClientRect();
+    if (e.touches && e.touches[0]) {
+      return { x: e.touches[0].clientX - r.left, y: e.touches[0].clientY - r.top };
+    } else {
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
+  }
+
+  // pointer move
+  function onPointerMove(e) {
+    if (!running) return;
+    const p = toLocal(e);
+    addTrailPoint(p.x, p.y);
+    pruneTrail();
+    drawTrail();
+  }
+
+  // pointer down (start slicing)
+  function onPointerDown(e) {
+    if (!running) return;
+    pointerDown = true;
+    const p = toLocal(e);
+    addTrailPoint(p.x, p.y);
+    drawTrail();
+  }
+  function onPointerUp(e) {
+    pointerDown = false;
+    trail = [];
+    ctx.clearRect(0,0,width,height);
+  }
+
+  // attach mouse & touch
+  game.addEventListener('mousemove', onPointerMove);
+  game.addEventListener('mousedown', onPointerDown);
+  window.addEventListener('mouseup', onPointerUp);
+  game.addEventListener('touchmove', (e)=>{ e.preventDefault(); onPointerMove(e); }, {passive:false});
+  game.addEventListener('touchstart', (e)=>{ e.preventDefault(); onPointerDown(e); }, {passive:false});
+  game.addEventListener('touchend', (e)=>{ e.preventDefault(); onPointerUp(e); }, {passive:false});
+
+  // GAME LOOP 
+  let lastFrameTime = now();
+  function loop() {
+    const cur = now();
+    const dt = cur - lastFrameTime; 
+    lastFrameTime = cur;
+    update(dt);
+    // prune trail visually even when pointer not moving
+    pruneTrail();
+    if (!pointerDown) drawTrail(); 
+    rafId = requestAnimationFrame(loop);
+  }
+
+  // CONTROL 
+  function startGame() {
+    if (running) return;
+    running = true;
+    score = 0; combo = 0;
+    scoreEl.textContent = 0;
+    lastSpawn = now();
+    spawnTimer = setInterval(()=> {
+      if (fruits.length < CONFIG.maxFruits) spawnFruit(Math.random() < CONFIG.spawnBurstChance);
+    }, Math.max(280, CONFIG.spawnInterval - 120));
+    lastFrameTime = now();
+    loop();
+    startBtn.textContent = 'Playing…';
+  }
+  function stopGame() {
+    running = false;
+    clearInterval(spawnTimer);
+    spawnTimer = null;
+    if (rafId) cancelAnimationFrame(rafId);
+    startBtn.textContent = 'Start';
+  }
+  function resetGame() {
+    stopGame();
+    // clear fruits
+    fruits.forEach(f => { try{ f.el.remove(); }catch{} });
+    fruits = [];
+    // clear pops
+    popLayer.innerHTML = '';
+    // reset trail
+    trail = [];
+    ctx.clearRect(0,0,width,height);
+    score = 0; combo = 0;
+    scoreEl.textContent = 0;
+  }
+
+  startBtn.addEventListener('click', ()=> {
+    if (!running) startGame(); else stopGame();
+  });
+  resetBtn.addEventListener('click', resetGame);
+
+  // init: make a little starter burst disabled until play
+  function initDemoBurst() {
+    // small aesthetic fruits before start
+    for (let i=0;i<2;i++) setTimeout(()=> spawnFruit(true), 300 + i*180);
+    setTimeout(()=> { fruits.forEach(f=>{ try{ f.el.remove(); }catch{} }); fruits = []; }, 1200);
+  }
+  initDemoBurst();
+  resize();
+  </script>
+</body>
+</html>

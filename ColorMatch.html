@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Color Match Puzzle</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { 
+    margin:0; 
+    background: radial-gradient(circle at top, #0b0b1a, #02020a); 
+    font-family:'Segoe UI', sans-serif; 
+    display:flex; 
+    flex-direction:column; 
+    justify-content:center; 
+    align-items:center; 
+    height:100vh; 
+    color:white; 
+  }
+  #game { 
+    display:grid; 
+    grid-template-columns: repeat(4, 100px); 
+    grid-gap:15px; 
+    margin-top:20px; 
+  }
+  .card { 
+    width:100px; 
+    height:100px; 
+    border-radius:12px; 
+    cursor:pointer; 
+    display:flex; 
+    justify-content:center; 
+    align-items:center; 
+    font-size:32px; 
+    transition: transform 0.2s; 
+  }
+  .card:hover { 
+    transform: scale(1.1); 
+  }
+  .btn { 
+    margin-top:15px; 
+    padding:10px 20px; 
+    border-radius:8px; 
+    background-color:#1e40af; 
+    color:white; 
+    font-weight:bold; 
+    cursor:pointer; 
+    transition: transform 0.2s, background 0.2s; 
+  }
+  .btn:hover { 
+    transform: scale(1.05); 
+    background-color:#3b82f6; 
+    }
+</style>
+</head>
+<body>
+<div>
+  <h1 class="text-3xl font-bold text-center mb-6 text-cyan-400">🎨 Color Match Puzzle</h1>
+  <div id="game"></div>
+  <p id="score" class="mt-6 text-center text-xl">Score: 0</p>
+  <div class="flex justify-center gap-4">
+    <button id="startBtn" class="btn">Start</button>
+    <button id="resetBtn" class="btn">Reset</button>
+  </div>
+</div>
+<script>
+const colors = ['red','blue','green','yellow','orange','purple','pink','cyan'];
+let colorPairs = [...colors,...colors];
+let firstCard=null;
+let secondCard=null;
+let score=0;
+let gameStarted=false;
+
+function shuffle(array){
+  for(let i=array.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [array[i],array[j]]=[array[j],array[i]];
+  }
+  return array;
+}
+
+function createGame(){
+  const game = document.getElementById('game');
+  game.innerHTML='';
+  shuffle(colorPairs);
+  colorPairs.forEach(color=>{
+    const card=document.createElement('div');
+    card.classList.add('card','bg-gray-800');
+    card.dataset.color=color;
+    card.addEventListener('click', flipCard);
+    game.appendChild(card);
+  });
+  document.getElementById('score').textContent='Score: 0';
+  score=0;
+  firstCard=null;
+  secondCard=null;
+}
+
+function flipCard(e){
+  if(!gameStarted) return;
+  const card=e.target;
+  if(card===firstCard || card.classList.contains('matched')) return;
+  card.style.backgroundColor=card.dataset.color;
+  if(!firstCard){
+    firstCard=card;
+  } else {
+    secondCard=card;
+    if(firstCard.dataset.color===secondCard.dataset.color){
+      firstCard.classList.add('matched');
+      secondCard.classList.add('matched');
+      score+=10;
+      document.getElementById('score').textContent='Score: '+score;
+      firstCard=null;
+      secondCard=null;
+    } else {
+      setTimeout(()=>{
+        firstCard.style.backgroundColor='gray';
+        secondCard.style.backgroundColor='gray';
+        firstCard=null;
+        secondCard=null;
+      },1000);
+    }
+  }
+}
+
+document.getElementById('startBtn').addEventListener('click', ()=>{
+  gameStarted=true;
+  createGame();
+});
+
+document.getElementById('resetBtn').addEventListener('click', ()=>{
+  gameStarted=false;
+  createGame();
+});
+
+</script>
+</body>
+</html>
